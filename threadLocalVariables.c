@@ -469,6 +469,34 @@ void _tlv_bootstrap()
 }
 
 
+// Modified 2015-01-04, enable TLS support for __arm__
+#if __arm__
+
+// Somehow need to initialize since dyld for iOS 32-bit won't call us.  Was
+// not sure of the best place to get this in the init chain, but this seems to
+// work for now.
+__attribute__((constructor)) static void inittlv()
+{
+    tlv_initializer();
+}
+
+// LLVM version ca673b3 has TLS enabled for iOS (arm-darwin/macho) that works
+// by emitting calls to __tls_get_addr for thread locals.  This is the
+// implementation.  It would be nice to change it someday to emmit direct
+// calls to the thunk instead of __tls_get_addr().
+void* __tls_get_addr(TLVDescriptor* tlvd)
+{
+    // Make sure the thunk was initialized.  We know it should be
+    // tlv_get_addr, so if it isn't, then tlv_initialize_descriptors didn't
+    // get called.
+    if (tlvd->thunk != &tlv_get_addr) {
+        return 0;
+    }
+
+    return tlv_get_addr(tlvd);
+}
+
+#endif //__arm__
 
 #else
 
