@@ -22,6 +22,11 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
+/* Modified on 2015-01-04 from:
+   http://www.opensource.apple.com/source/dyld/dyld-353.2.1/src/
+      threadLocalVariables.c
+   Support for __arm__ exists but is not included in iOS runtime.  Here we
+   take what Apple already developed and enable it. */
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -77,8 +82,8 @@
 typedef void (*TermFunc)(void*);
 
 
-
-#if __has_feature(tls) || __arm64__
+// Modified 2015-01-04, enable TLS support for __arm__
+#if __has_feature(tls) || __arm64__ || __arm__
 
 typedef struct TLVHandler {
 	struct TLVHandler *next;

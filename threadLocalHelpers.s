@@ -21,7 +21,16 @@
  * @APPLE_LICENSE_HEADER_END@
  */
  
+/* Modified on 2015-01-04 from:
+   http://www.opensource.apple.com/source/dyld/dyld-353.2.1/src/
+      threadLocalHelpers.s
+   Support for __arm__ exists but is not included in iOS runtime.  Here we
+   take what Apple already developed and enable it. */
+
+// Modified 2015-01-04, not needed from basic __arm__ support of TLS
+#if 0
 #include <System/machine/cpu_capabilities.h>
+#endif
 
 // bool save_xxm = (*((uint32_t*)_COMM_PAGE_CPU_CAPABILITIES) & kHasAVX1_0) != 0;
 
@@ -280,9 +289,11 @@ LlazyAllocate:
 
 #endif
 
-#if 0
+// Modified 2015-01-04, enable existing TLS support for __arm__
+#if 1
 #if __arm__
 	// returns address of TLV in r0, all other registers preserved
+	.align 2
 	.globl _tlv_get_addr
 	.private_extern _tlv_get_addr
 _tlv_get_addr:
