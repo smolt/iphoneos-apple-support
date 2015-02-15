@@ -1,7 +1,7 @@
 iphoneos-apple-support
 ======================
 
-This little library, libiossup, packages some useful iOS stuff derived
+This little library, libiphoneossup, packages some useful iOS stuff derived
 from http://www.opensource.apple.com.  In particular, it provides
 support for thread local variables on 32-bit ARM architectures which
 is needed to fully use the D programming language on iOS.
@@ -13,9 +13,9 @@ To build, you must have the iPhoneOS platform SDK installed.
 	$ cd iphone-apple-support
 	$ make
 
-Then add libiossup.a to your Xcode project.
+Then add libiphoneossup.a to your Xcode project.
 
-Currently the Makefile just builds libiossup.a for the armv7
+Currently the Makefile just builds libiphoneossup.a for the armv7
 architecture which supports iPhone 4 and up.  This library probably is
 not needed for the arm64 architecture.
 
