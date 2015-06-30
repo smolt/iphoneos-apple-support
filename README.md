@@ -3,24 +3,28 @@ iphoneos-apple-support
 
 This little library, libiphoneossup, packages some useful iOS stuff derived
 from http://www.opensource.apple.com.  In particular, it provides
-support for thread local variables on 32-bit ARM architectures which
-is needed to fully use the D programming language on iOS.
+support for thread local variables on 32-bit ARM and i386 (iOS
+Simulator) which is needed to fully use the D programming language on
+iOS.
 
 Please read the APPLE_LICENSE before using.
 
-To build, you must have the iPhoneOS platform SDK installed.
+To build, you must have the iPhoneOS platform SDK and Xcode command
+line tools installed.
 
 	$ cd iphone-apple-support
 	$ make
 
 Then add libiphoneossup.a to your Xcode project.
 
-Currently the Makefile just builds libiphoneossup.a for the armv7
-architecture which supports iPhone 4 and up.  This library probably is
-not needed for the arm64 architecture.
+Currently the Makefile builds libiphoneossup.a for the armv7 and i386
+architectures which supports iPhone 4 and up.  This library may not be
+needed for the arm64 architecture, but have yet to try.
 
 A fork of LDC, the LLVM-based D compiler, with iOS support can be
-found at https://github.com/smolt/ldc.
+found at https://github.com/smolt/ldc, a modified version of LLVM
+at https://github.com/smolt/llvm, and a repository to help glue it all
+together at https://github.com/smolt/ldc-iphone-dev.
 
 Background
 ----------
@@ -46,12 +50,6 @@ targeting iOS and follow the provisions of the license.
 Source here is from
 http://www.opensource.apple.com/source/dyld/dyld-353.2.1/
 - include/mach-o/dyld_priv.h
-- src/threadLocalHelpers.s
 - src/threadLocalVariables.c
-
-The modifications to enable for `__arm__` are noted in comments.
-
-I had all this working in April of 2014, but got distracted.  Sorry
-for the delay.
 
 Dan Olson

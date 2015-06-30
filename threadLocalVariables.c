@@ -25,7 +25,7 @@
 /* Modified on 2015-01-04 from:
    http://www.opensource.apple.com/source/dyld/dyld-353.2.1/src/
       threadLocalVariables.c
-   Support for __arm__ exists but is not included in iOS runtime.  Here we
+   Support for iOS exists but is not included in iOS runtime.  Here we
    take what Apple already developed and enable it. */
 
 #include <stdlib.h>
@@ -105,7 +105,9 @@ typedef struct TLVDescriptor  TLVDescriptor;
 
 
 // implemented in assembly
-extern void* tlv_get_addr(TLVDescriptor*);
+//extern void* tlv_get_addr(TLVDescriptor*);
+// but this is implemented in this file...
+extern void* __tls_get_addr(TLVDescriptor*);
 
 struct TLVImageInfo
 {
@@ -171,8 +173,10 @@ tlv_notify(enum dyld_tlv_states state, void *buffer)
 
 
 // called lazily when TLV is first accessed
-__attribute__((visibility("hidden")))
-void* tlv_allocate_and_initialize_for_key(pthread_key_t key)
+//__attribute__((visibility("hidden")))
+// codegen is better for case for __tls_get_addr if not inlined
+__attribute__((noinline))
+static void* tlv_allocate_and_initialize_for_key(pthread_key_t key)
 {
 	const struct mach_header* mh = tlv_get_image_for_key(key);
 	if ( mh == NULL )
@@ -298,7 +302,7 @@ static void tlv_initialize_descriptors(const struct mach_header* mh)
 						TLVDescriptor* start = (TLVDescriptor*)(sect->addr + slide);
 						TLVDescriptor* end = (TLVDescriptor*)(sect->addr + sect->size + slide);
 						for (TLVDescriptor* d=start; d < end; ++d) {
-							d->thunk = tlv_get_addr;
+							d->thunk = __tls_get_addr;
 							d->key = key;
 							//d->offset = d->offset;  // offset unchanged
 						}
@@ -448,9 +452,8 @@ void _tlv_exit()
 		tlv_finalize(termFuncs);
 }
 
-
-__attribute__((visibility("hidden")))
-void tlv_initializer()
+//__attribute__((visibility("hidden")))
+static void tlv_initializer()
 {
     // create pthread key to handle thread_local destructors
     // NOTE: this key must be allocated before any keys for TLV
@@ -470,33 +473,39 @@ void _tlv_bootstrap()
 
 
 // Modified 2015-01-04, enable TLS support for __arm__
-#if __arm__
+//   and later i386 simulator
 
 // Somehow need to initialize since dyld for iOS 32-bit won't call us.  Was
 // not sure of the best place to get this in the init chain, but this seems to
 // work for now.
-__attribute__((constructor)) static void inittlv()
+__attribute__((constructor))
+static void inittlv()
 {
     tlv_initializer();
 }
 
-// LLVM version ca673b3 has TLS enabled for iOS (arm-darwin/macho) that works
-// by emitting calls to __tls_get_addr for thread locals.  This is the
-// implementation.  It would be nice to change it someday to emmit direct
-// calls to the thunk instead of __tls_get_addr().
-void* __tls_get_addr(TLVDescriptor* tlvd)
+// LLVM https://github.com/smolt/llvm has TLS enabled for iOS
+// (arm-darwin/macho and i386-ios) that works by emitting calls to
+// __tls_get_addr for thread locals.  It would be nice to change it someday to
+// emmit direct calls to the thunk instead of __tls_get_addr().
+void *__tls_get_addr(TLVDescriptor *tlvd)
 {
     // Make sure the thunk was initialized.  We know it should be
-    // tlv_get_addr, so if it isn't, then tlv_initialize_descriptors didn't
+    // __tls_get_addr, so if it isn't, then tlv_initialize_descriptors didn't
     // get called.
-    if (tlvd->thunk != &tlv_get_addr) {
+#if 0 // skip check, save some instructions
+    if (tlvd->thunk == 0 || tlvd->thunk == (void*)&_tlv_bootstrap) {
         return 0;
     }
+    #endif
 
-    return tlv_get_addr(tlvd);
+    void* p = pthread_getspecific(tlvd->key);
+    if (!p) {
+        p = tlv_allocate_and_initialize_for_key(tlvd->key);
+    }
+
+    return p + tlvd->offset;
 }
-
-#endif //__arm__
 
 #else
 
