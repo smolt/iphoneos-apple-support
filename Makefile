@@ -10,7 +10,7 @@ LIBNAME = libiphoneossup.a
 OBJS = threadLocalVariables.o
 
 # For now, just make basic CPUs for iPhone4
-ARCHS := i386 armv7
+ARCHS = i386 armv7 armv7s
 
 CFLAGS = -Os -g
 LIBS = $(ARCHS:%=%-$(LIBNAME))
@@ -30,5 +30,7 @@ clean:
 # compile for specific iOS arch
 armv7-%.o: %.c
 	xcrun --sdk iphoneos cc -arch armv7 $(CFLAGS) -c -o $@ $<
+armv7s-%.o: %.c
+	xcrun --sdk iphoneos cc -arch armv7s $(CFLAGS) -c -o $@ $<
 i386-%.o: %.c
 	xcrun --sdk iphonesimulator cc -arch i386 $(CFLAGS) -c -o $@ $<
