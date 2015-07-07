@@ -25,8 +25,14 @@
 /* Modified on 2015-01-04 from:
    http://www.opensource.apple.com/source/dyld/dyld-353.2.1/src/
       threadLocalVariables.c
-   Support for iOS exists but is not included in iOS runtime.  Here we
-   take what Apple already developed and enable it. */
+
+   TLV support for 32-bit iOS mostly exists in dyld but it is not included in
+   iOS runtime.  Here we take what Apple already developed and enable it.
+
+   Function names considered to be part of the dyld private API have been
+   changed by adding the prefix ios, so "dyld_" becomes "iosdyld_". Static
+   scope names (functions, vars) and types are left as-is.
+*/
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -81,9 +87,6 @@
 
 typedef void (*TermFunc)(void*);
 
-
-// Modified 2015-01-04, enable TLS support for __arm__
-#if __has_feature(tls) || __arm64__ || __arm__
 
 typedef struct TLVHandler {
 	struct TLVHandler *next;
@@ -327,8 +330,22 @@ static const char* tlv_load_notification(enum dyld_image_states state, uint32_t 
 	return NULL;
 }
 
+// Above is fed to dyld_register_image_state_change_handler(), which is a
+// private API.  Something similar that can can be used with public API
+// _dyld_register_func_for_add_image() follows:
 
-void dyld_register_tlv_state_change_handler(enum dyld_tlv_states state, dyld_tlv_state_change_handler handler)
+static void init_tlv_on_add_image(const struct mach_header* mh, intptr_t vmaddr_slide)
+{
+	// this is called on all images, even those without TLVs, so we want
+	// this to be fast.  The linker sets MH_HAS_TLV_DESCRIPTORS so we don't
+	// have to search images just to find the don't have TLVs.
+    if (mh->flags & MH_HAS_TLV_DESCRIPTORS)
+        tlv_initialize_descriptors(mh);
+}
+
+// private API name changed
+
+void iosdyld_register_tlv_state_change_handler(enum dyld_tlv_states state, dyld_tlv_state_change_handler handler)
 {
 	TLVHandler *h = malloc(sizeof(TLVHandler));
 	h->state = state;
@@ -341,8 +358,9 @@ void dyld_register_tlv_state_change_handler(enum dyld_tlv_states state, dyld_tlv
 	} while (! OSAtomicCompareAndSwapPtrBarrier(old, h, (void * volatile *)&tlv_handlers));
 }
 
+// private API name changed
 
-void dyld_enumerate_tlv_storage(dyld_tlv_state_change_handler handler)
+void iosdyld_enumerate_tlv_storage(dyld_tlv_state_change_handler handler)
 {
 	pthread_mutex_lock(&tlv_live_image_lock);
 		unsigned int count = tlv_live_image_used_count;
@@ -393,6 +411,7 @@ struct TLVTerminatorList
 
 static pthread_key_t tlv_terminators_key = 0;
 
+static // not currently used
 void _tlv_atexit(TermFunc func, void* objAddr)
 {
     // NOTE: this does not need locks because it only operates on current thread data
@@ -445,6 +464,7 @@ static void tlv_finalize(void* storage)
 // <rdar://problem/13741816>
 // called by exit() before it calls cxa_finalize() so that thread_local
 // objects are destroyed before global objects.
+static // not currently used
 void _tlv_exit()
 {
 	void* termFuncs = pthread_getspecific(tlv_terminators_key);
@@ -452,8 +472,8 @@ void _tlv_exit()
 		tlv_finalize(termFuncs);
 }
 
-//__attribute__((visibility("hidden")))
-static void tlv_initializer()
+static
+void tlv_initializer()
 {
     // create pthread key to handle thread_local destructors
     // NOTE: this key must be allocated before any keys for TLV
@@ -461,19 +481,21 @@ static void tlv_initializer()
     (void)pthread_key_create(&tlv_terminators_key, &tlv_finalize);
        
     // register with dyld for notification when images are loaded
-    dyld_register_image_state_change_handler(dyld_image_state_bound, true, tlv_load_notification);
-}
+    //dyld_register_image_state_change_handler(dyld_image_state_bound, true, tlv_load_notification);
 
+    // dyld_register_image_state_change_handler is private API, so change to
+    // something public.  Difference is that this has risk that "this" image
+    // will be unloaded if we are in shared lib, making init_tlv_on_add_image
+    // be invalid.  Currently not a worry on iOS where static user libs are
+    // more common
+    _dyld_register_func_for_add_image(&init_tlv_on_add_image);
+}
 
 // linked images with TLV have references to this symbol, but it is never used at runtime
 void _tlv_bootstrap()
 {
 	abort();
 }
-
-
-// Modified 2015-01-04, enable TLS support for __arm__
-//   and later i386 simulator
 
 // Somehow need to initialize since dyld for iOS 32-bit won't call us.  Was
 // not sure of the best place to get this in the init chain, but this seems to
@@ -497,7 +519,7 @@ void *__tls_get_addr(TLVDescriptor *tlvd)
     if (tlvd->thunk == 0 || tlvd->thunk == (void*)&_tlv_bootstrap) {
         return 0;
     }
-    #endif
+#endif
 
     void* p = pthread_getspecific(tlvd->key);
     if (!p) {
@@ -506,32 +528,3 @@ void *__tls_get_addr(TLVDescriptor *tlvd)
 
     return p + tlvd->offset;
 }
-
-#else
-
-
-
-void dyld_register_tlv_state_change_handler(enum dyld_tlv_states state, dyld_tlv_state_change_handler handler)
-{
-}
-
-void dyld_enumerate_tlv_storage(dyld_tlv_state_change_handler handler)
-{
-}
-
-void _tlv_exit()
-{
-}
-
-void _tlv_atexit(TermFunc func, void* objAddr)
-{
-}
-
-__attribute__((visibility("hidden")))
-void tlv_initializer()
-{
-}
-
-
-
-#endif // __has_feature(tls)
