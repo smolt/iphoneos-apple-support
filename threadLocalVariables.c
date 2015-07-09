@@ -22,7 +22,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-/* Modified on 2015-01-04 from:
+/* Modified on 2015-07-08 from:
    http://www.opensource.apple.com/source/dyld/dyld-353.2.1/src/
       threadLocalVariables.c
 
