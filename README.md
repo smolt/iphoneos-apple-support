@@ -3,7 +3,7 @@ iphoneos-apple-support
 
 This little library, libiphoneossup, packages some useful iOS stuff derived
 from http://www.opensource.apple.com.  In particular, it provides
-support for thread local variables on 32-bit ARM and i386 (iOS
+support for thread local variables on arm/arm64 and i386/x86_64 (iOS
 Simulator) which is needed to fully use the D programming language on
 iOS.
 
@@ -17,9 +17,8 @@ line tools installed.
 
 Then add libiphoneossup.a to your Xcode project.
 
-Currently the Makefile builds libiphoneossup.a for the armv7 and i386
-architectures which supports iPhone 4 and up.  This library may not be
-needed for the arm64 architecture, but have yet to try.
+Currently the Makefile builds libiphoneossup.a for the armv7, armv7s, arm64, i386, and x86_6
+architectures which supports iPhone 4 and up.
 
 A fork of LDC, the LLVM-based D compiler, with iOS support can be
 found at https://github.com/smolt/ldc, a modified version of LLVM
@@ -31,7 +30,7 @@ Background
 
 In 2014, I had fun hacking LDC into a cross-compiler to iOS.  The D
 programming language relies heavily on thread local storage (TLS), but
-iOS for the 32-bit ARM architectures does not have such builtin
+iOS does not have such builtin
 support.  Without TLS, the D runtime and standard library phobos are
 unsafe to use in a multi-threaded environment.
 
