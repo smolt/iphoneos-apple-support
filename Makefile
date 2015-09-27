@@ -12,7 +12,7 @@ OBJS = threadLocalVariables.o
 # For now, just make basic CPUs for iPhone4 through iPhone6
 ARCHS = i386 x86_64 armv7 armv7s arm64
 
-CFLAGS = -g -miphoneos-version-min=5.1
+CFLAGS = -Os -g -miphoneos-version-min=5.1
 LIBS = $(ARCHS:%=%-$(LIBNAME))
 
 all: $(LIBNAME)
