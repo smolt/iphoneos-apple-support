@@ -22,16 +22,20 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-/* Modified on 2015-07-08 from:
+/* Modified on 2015-09-26 from:
    http://www.opensource.apple.com/source/dyld/dyld-353.2.1/src/
       threadLocalVariables.c
 
-   TLV support for 32-bit iOS mostly exists in dyld but it is not included in
-   iOS runtime.  Here we take what Apple already developed and enable it.
+   TLV support mostly exists in dyld but it is not included in iOS runtime.
+   Here we take what Apple already developed and enable it.
 
    Function names considered to be part of the dyld private API have been
    changed by adding the prefix ios, so "dyld_" becomes "iosdyld_". Static
    scope names (functions, vars) and types are left as-is.
+
+   Works with modified LLVM at: https://github.com/smolt/llvm.  TLV
+   descriptors are emitted in __iostlv sections instead of usual __thread_vars
+   section.  TLS lookup is done via __tls_get_addr
 */
 
 #include <stdlib.h>
@@ -272,10 +276,26 @@ tlv_free(void *storage)
 	free(storage);
 }
 
+// find start of TLV template
+static void* findTlvStart(const macho_section* sectionsStart,
+						  const macho_section* sectionsEnd,
+						  intptr_t slide)
+{
+	for (const macho_section* sect=sectionsStart; sect < sectionsEnd; ++sect) {
+		if ( (sect->flags & SECTION_TYPE) == S_THREAD_LOCAL_ZEROFILL ||
+			 (sect->flags & SECTION_TYPE) == S_THREAD_LOCAL_REGULAR )  {
+			return (void*)(sect->addr + slide);
+		}
+	}
+	return NULL;
+}
 
 // called when image is loaded
 static void tlv_initialize_descriptors(const struct mach_header* mh)
 {
+	// record start of TLS template. used to calc offset in TLV descriptors
+	// when not in a standard thread_local_variables type section
+	void*			tlvstart = NULL;
 	pthread_key_t	key = 0;
 	intptr_t		slide = 0;
 	bool			slideComputed = false;
@@ -291,23 +311,43 @@ static void tlv_initialize_descriptors(const struct mach_header* mh)
 			}
 			const macho_section* const sectionsStart = (macho_section*)((char*)seg + sizeof(macho_segment_command));
 			const macho_section* const sectionsEnd = &sectionsStart[seg->nsects];
-			for (const macho_section* sect=sectionsStart; sect < sectionsEnd; ++sect) {
-				if ( (sect->flags & SECTION_TYPE) == S_THREAD_LOCAL_VARIABLES ) {
-					if ( sect->size != 0 ) {
-						// allocate pthread key when we first discover this image has TLVs
-						if ( key == 0 ) {
-							int result = pthread_key_create(&key, &tlv_free);
-							if ( result != 0 )
-								abort();
-							tlv_set_key_for_image(mh, key);
-						}
-						// initialize each descriptor
-						TLVDescriptor* start = (TLVDescriptor*)(sect->addr + slide);
-						TLVDescriptor* end = (TLVDescriptor*)(sect->addr + sect->size + slide);
-						for (TLVDescriptor* d=start; d < end; ++d) {
-							d->thunk = __tls_get_addr;
-							d->key = key;
-							//d->offset = d->offset;  // offset unchanged
+
+			// first phase, find start of TLV template sections so can calc
+			// offset.	This is only needed for our custom __iostlv section.
+			// A S_THREAD_LOCAL_VARIABLES section would already have the
+			// correct offset calculated by ld.
+			if (!tlvstart) {
+				tlvstart = findTlvStart(sectionsStart, sectionsEnd, slide);
+			}
+
+			// Are there thread locals?	 If so, search for and intialize TLV
+			// descriptors in either __iostlv (custom section for TLV
+			// descriptors) or S_THREAD_LOCAL_REGULAR (the official way but
+			// disallowed by ld for iOS).
+			if (tlvstart) {
+				for (const macho_section* sect=sectionsStart; sect < sectionsEnd; ++sect) {
+					bool isTLVSection = (sect->flags & SECTION_TYPE) == S_THREAD_LOCAL_VARIABLES;
+
+					if ( isTLVSection || strcmp("__iostlv", sect->sectname) == 0 ) {
+						if ( sect->size != 0 ) {
+							// allocate pthread key when we first discover this image has TLVs
+							if ( key == 0 ) {
+								int result = pthread_key_create(&key, &tlv_free);
+								if ( result != 0 )
+									abort();
+								tlv_set_key_for_image(mh, key);
+							}
+							// initialize each descriptor
+							TLVDescriptor* start = (TLVDescriptor*)(sect->addr + slide);
+							TLVDescriptor* end = (TLVDescriptor*)(sect->addr + sect->size + slide);
+							for (TLVDescriptor* d=start; d < end; ++d) {
+								d->thunk = __tls_get_addr;
+								d->key = key;
+								//d->offset = d->offset;  // offset unchanged
+								if (!isTLVSection) {
+									d->offset -= (unsigned long)tlvstart;
+								}
+							}
 						}
 					}
 				}
@@ -317,6 +357,8 @@ static void tlv_initialize_descriptors(const struct mach_header* mh)
 	}
 }
 
+// not used but kept for documentation
+#if 0
 // called by dyld when a image is loaded
 static const char* tlv_load_notification(enum dyld_image_states state, uint32_t infoCount, const struct dyld_image_info info[])
 {
@@ -329,6 +371,7 @@ static const char* tlv_load_notification(enum dyld_image_states state, uint32_t 
 	}
 	return NULL;
 }
+#endif
 
 // Above is fed to dyld_register_image_state_change_handler(), which is a
 // private API.  Something similar that can can be used with public API
@@ -336,11 +379,12 @@ static const char* tlv_load_notification(enum dyld_image_states state, uint32_t 
 
 static void init_tlv_on_add_image(const struct mach_header* mh, intptr_t vmaddr_slide)
 {
-	// this is called on all images, even those without TLVs, so we want
-	// this to be fast.  The linker sets MH_HAS_TLV_DESCRIPTORS so we don't
-	// have to search images just to find the don't have TLVs.
-    if (mh->flags & MH_HAS_TLV_DESCRIPTORS)
-        tlv_initialize_descriptors(mh);
+	// this is called on all images, even those without TLVs.  The linker
+	// would normally set
+	// MH_HAS_TLV_DESCRIPTORS for sections with TLV descriptors, but not for
+	// our custom __iostlv section, so must search all :-(
+	//if (mh->flags & MH_HAS_TLV_DESCRIPTORS)
+	tlv_initialize_descriptors(mh);
 }
 
 // private API name changed
